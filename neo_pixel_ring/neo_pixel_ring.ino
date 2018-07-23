@@ -215,7 +215,7 @@ int checkButton() {
     &&  (millis() - downTime) >= holdTime
     ) {
        // Trigger "normal" hold
-       if (not holdEventPast) {
+       if (!holdEventPast) {
             Serial.println(__LINE__);
             event = 3;
             waitForUp = true;
