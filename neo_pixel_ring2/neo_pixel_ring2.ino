@@ -1,6 +1,11 @@
 /**
  *  Arduino script for the neopixel ring lantern
  *
+ *  multiClick code from
+ *  http://jmsarduino.blogspot.com/2009/10/4-way-button-click-double-click-hold.html
+ *
+ *  the modified by Joel Haker
+ *
  *  Start of project: 2018-05-25
 **/
 #include <Adafruit_NeoPixel.h>
@@ -30,21 +35,21 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(12, NEO_PIN, NEO_GRB + NEO_KHZ800);
 // Button timing variables
 int debounce = 20; // ms debounce period to prevent flickering when pressing or releasing the button
 int DCgap = 250;   // max ms between clicks for a double click event
-int holdTime = 1000;  // ms hold period: how long to wait for press+hold event
-int longHoldTime = 5000; // ms long hold period: how long to wait for press+hold event
+int longPressTime = 1000;  // ms hold period: how long to wait for press+hold event
+int vlongPressTime = 4000; // ms long hold period: how long to wait for press+hold event
 
 // Button variables
 long upTime = -1;   // time the button was released
 long downTime = -1; // time the button was pressed down
-boolean buttonVal = HIGH;  // value read from button
-boolean buttonLast = HIGH; // buffered value of the button's previous state
-boolean DCwaiting = false; // whether we're waiting for a double click (down)
-boolean DConUp = false;    // whether to register a double click on next release, or wait and click
-boolean singleOK = true;   // whether it's OK to do a single click
+boolean btnState = HIGH;  // value read from button
+boolean btnStateLast = HIGH; // buffered value of the button's previous state
+boolean dblClickWaiting = false; // whether we're waiting for a double click (down)
+boolean dblClickOnNextUp = false;    // whether to register a double click on next release, or wait and click
+boolean singleClickOK = true;   // whether it's OK to do a single click
 boolean ignoreUp = false;  // ignore the button release because the click+hold was triggered
 boolean waitForUp = false;     // when held, whether to wait for the up event
-boolean holdEventPast = false; // whether or not the hold event happened already
-boolean longHoldEventPast = false; // whether or not the long hold event happened already
+boolean longPressHappened = false; // whether or not the hold event happened already
+boolean vLongPressHappened = false; // whether or not the long hold event happened already
 
 //==============================================================================
 // Gobal Variables
@@ -169,168 +174,107 @@ uint32_t Wheel(byte WheelPos)
 int readButtonEvent()
 {
     int event = 0;
-    buttonVal = digitalRead(BUTTON_PIN);
-
-    if (buttonVal != buttonLast) {
-        Serial.println("");
-        Serial.println("***************************************");
-        Serial.print("buttonVal: "); Serial.println(buttonVal);
-        Serial.print("buttonLast: "); Serial.println(buttonLast);
-        Serial.println("***************************************");
-        Serial.println("");
-    }
+    long chckbtn_millis = millis();
+    btnState = digitalRead(BUTTON_PIN);
 
     if ( // Button pressed down
-        buttonVal == LOW
-    &&  buttonLast == HIGH
-    && (millis() - upTime) > debounce
+        btnState == LOW
+    &&  btnStateLast == HIGH
+    &&  (chckbtn_millis - upTime) > debounce
     ) {
         downTime = millis();
         ignoreUp = false;
         waitForUp = false;
-        singleOK = true;
-        holdEventPast = false;
-        longHoldEventPast = false;
+        singleClickOK = true;
+        longPressHappened = false;
+        vLongPressHappened = false;
 
         if (
-           (millis()-upTime) < DCgap
-        &&  DConUp == false
-        &&  DCwaiting == true
+           (chckbtn_millis - upTime) < DCgap
+        &&  dblClickOnNextUp == false
+        &&  dblClickWaiting == true
         ) {
-            DConUp = true;
+            dblClickOnNextUp = true;
         } else {
-            DConUp = false;
+            dblClickOnNextUp = false;
         }
 
-        DCwaiting = false;
+        dblClickWaiting = false;
 
     } else if ( // Button released
-        buttonVal == HIGH
-    &&  buttonLast == LOW
-    && (millis() - downTime) > debounce
+        btnState == HIGH
+    &&  btnStateLast == LOW
+    &&  (chckbtn_millis - downTime) > debounce
     ) {
-        if (!ignoreUp) {
+        if (ignoreUp == false) {
 
             upTime = millis();
 
-            if (DConUp == false) {
-                DCwaiting = true;
+            if (dblClickOnNextUp == false) {
+                dblClickWaiting = true;
             } else {
                 event = 2;
-                DConUp = false;
-                DCwaiting = false;
-                singleOK = false;
+                dblClickOnNextUp = false;
+                dblClickWaiting = false;
+                singleClickOK = false;
             }
         }
     }
 
     if ( // Test for normal click event: DCgap expired
-        buttonVal == HIGH
-    && (millis()-upTime) >= DCgap
-    &&  DCwaiting == true
-    &&  DConUp == false
-    &&  singleOK == true
+        btnState == HIGH
+    &&  (chckbtn_millis - upTime) >= DCgap
+    &&  dblClickWaiting == true
+    &&  dblClickOnNextUp == false
+    &&  singleClickOK == true
     &&  event != 2
     ) {
         event = 1;
-        DCwaiting = false;
+        dblClickWaiting = false;
     }
 
-    // if ( // Test for hold
-    //     buttonVal == LOW
-    // && (millis() - downTime) >= holdTime
-    // ) {
-    //     if (!holdEventPast) {
-    //         // Trigger "normal" hold
-    //         event = 3;
-    //         waitForUp = true;
-    //         ignoreUp = true;
-    //         DConUp = false;
-    //         DCwaiting = false;
-    //         //downTime = millis();
-    //         holdEventPast = true;
-    //     }
-
-    //     if ((millis() - downTime) >= longHoldTime) {
-    //         // Trigger "long" hold
-    //         if (!longHoldEventPast) {
-    //             event = 4;
-    //             longHoldEventPast = true;
-    //         }
-    //     }
-    // }
-
-    if ( // Test for hold
-        buttonVal == LOW
-    && (millis() - downTime) >= holdTime
+    if ( // added code
+        btnState == HIGH
+    &&  longPressHappened
+    &&  !vLongPressHappened
     ) {
-        Serial.println(""); Serial.println(""); Serial.println(""); Serial.println("");
-        prln(__LINE__);
-        Serial.println("HELLO JOEL!!!");
-        Serial.println("");
+        event = 3; // trigger event after button release
+        longPressHappened = false;
+    } else if (
+        btnState == HIGH
+    &&  !longPressHappened
+    &&  vLongPressHappened
+    ) {
+        //event = 4; // trigger event after button release
+        vLongPressHappened = false;
+    } else {
+        if ( // Test for long press event
+            btnState == LOW
+        && (chckbtn_millis - downTime) >= longPressTime
+        ) {
+            if (!longPressHappened) {
+                //event = 3; // trigger event during button hold
+                //downTime = millis(); // Why is this here?
+                waitForUp = true;
+                ignoreUp = true;
+                dblClickOnNextUp = false;
+                dblClickWaiting = false;
+                longPressHappened = true;
+                vLongPressHappened = false;
+            }
 
-        Serial.println("");
-        prln(__LINE__);
-        Serial.print("event: "); Serial.println(event);
-        Serial.print("waitForUp: "); Serial.println(waitForUp);
-        Serial.print("ignoreUp: "); Serial.println(ignoreUp);
-        Serial.print("DConUp: "); Serial.println(DConUp);
-        Serial.print("DCwaiting: "); Serial.println(DCwaiting);
-        Serial.print("holdEventPast: "); Serial.println(holdEventPast);
-        Serial.print("longHoldEventPast: "); Serial.println(longHoldEventPast);
-        Serial.println("");
-
-        if (!holdEventPast) {
-            // Trigger "normal" hold
-            event = 3;
-            waitForUp = true;
-            ignoreUp = true;
-            DConUp = false;
-            DCwaiting = false;
-            //downTime = millis();
-            holdEventPast = true;
-            prln(__LINE__);
-        }
-
-        Serial.println("");
-        prln(__LINE__);
-        Serial.print("event: "); Serial.println(event);
-        Serial.print("waitForUp: "); Serial.println(waitForUp);
-        Serial.print("ignoreUp: "); Serial.println(ignoreUp);
-        Serial.print("DConUp: "); Serial.println(DConUp);
-        Serial.print("DCwaiting: "); Serial.println(DCwaiting);
-        Serial.print("holdEventPast: "); Serial.println(holdEventPast);
-        Serial.print("longHoldEventPast: "); Serial.println(longHoldEventPast);
-        Serial.println("");
-
-        if ((millis() - downTime) >= longHoldTime) {
-            prln(__LINE__);
-            // Trigger "long" hold
-            if (!longHoldEventPast) {
-                event = 4;
-                longHoldEventPast = true;
-                prln(__LINE__);
+            // Test for very long press event
+            if ((chckbtn_millis - downTime) >= vlongPressTime) {
+                if (!vLongPressHappened) {
+                    event = 4; // trigger event during button press
+                    longPressHappened = false;
+                    vLongPressHappened = true;
+                }
             }
         }
-
-        Serial.println("");
-        prln(__LINE__);
-        Serial.print("event: "); Serial.println(event);
-        Serial.print("waitForUp: "); Serial.println(waitForUp);
-        Serial.print("ignoreUp: "); Serial.println(ignoreUp);
-        Serial.print("DConUp: "); Serial.println(DConUp);
-        Serial.print("DCwaiting: "); Serial.println(DCwaiting);
-        Serial.print("holdEventPast: "); Serial.println(holdEventPast);
-        Serial.print("longHoldEventPast: "); Serial.println(longHoldEventPast);
-        Serial.println("");
-
-        Serial.println("");
-        prln(__LINE__);
-        Serial.println("DONE JOEL!!!");
-        Serial.println(""); Serial.println(""); Serial.println(""); Serial.println("");
     }
 
-    buttonLast = buttonVal;
+    btnStateLast = btnState;
 
     if (event != 0) {
         global_event_state_previous = global_event_state_current;
@@ -352,10 +296,10 @@ int handleButtonEvent(int event)
     } else if (event == 4) {
         longHoldEvent();
     } else {
-        return false;
+        return 0;
     }
 
-    return true;
+    return 1;
 }
 
 int checkButton()
@@ -435,8 +379,10 @@ int longHoldEvent()
     pr_global_event_status();
     Serial.println("");
 
+    colorWipe(strip.Color(0, 0, 0), 1);
+
     if (digitalRead(TWINKLE_PIN) == HIGH) {
-        colorWipe(strip.Color(255, 0, 0), 1);
+        digitalWrite(TWINKLE_PIN, LOW);
     }
 
     return 4;
